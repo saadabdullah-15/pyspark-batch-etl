@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+
+data/processed/
+data/raw/*.parquet
+hadoop/bin/winutils.exe
+hadoop/bin/hadoop.dll
+*.log
