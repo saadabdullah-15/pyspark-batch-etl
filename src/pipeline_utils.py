@@ -11,6 +11,10 @@ PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 INGEST_DIR = PROCESSED_DIR / "raw"
 CLEAN_DIR = PROCESSED_DIR / "clean"
 ANALYTICS_DIR = PROCESSED_DIR / "analytics"
+TAXI_TRIPS_FILE = RAW_DIR / "yellow_tripdata_2024-01.parquet"
+TAXI_ZONES_FILE = RAW_DIR / "taxi_zone_lookup.csv"
+ORDERS_FILE = RAW_DIR / "orders.csv"
+CUSTOMERS_FILE = RAW_DIR / "customers.csv"
 
 
 def configure_local_hadoop() -> None:
@@ -31,13 +35,35 @@ def configure_local_hadoop() -> None:
 def create_spark(app_name: str) -> SparkSession:
     configure_local_hadoop()
 
+    spark_master = os.environ.get("SPARK_MASTER", "local[2]")
+    driver_memory = os.environ.get("SPARK_DRIVER_MEMORY", "2g")
+    shuffle_partitions = os.environ.get("SPARK_SQL_SHUFFLE_PARTITIONS", "4")
+
     return (
         SparkSession.builder.appName(app_name)
-        .master("local[*]")
-        .config("spark.sql.shuffle.partitions", "8")
+        .master(spark_master)
+        .config("spark.driver.memory", driver_memory)
+        .config("spark.sql.shuffle.partitions", shuffle_partitions)
+        .config("spark.sql.parquet.compression.codec", "snappy")
         .getOrCreate()
     )
 
 
+def stop_spark(spark: SparkSession) -> None:
+    try:
+        spark.stop()
+    except Exception as error:
+        print(f"Warning: Spark shutdown failed: {error}")
+
+
 def as_posix(path: Path) -> str:
     return path.as_posix()
+
+
+def require_files(*paths: Path) -> None:
+    missing_files = [path for path in paths if not path.exists()]
+    if not missing_files:
+        return
+
+    formatted_paths = "\n".join(f"- {path.relative_to(PROJECT_ROOT)}" for path in missing_files)
+    raise FileNotFoundError(f"Missing required input file(s):\n{formatted_paths}")

@@ -1,3 +1,4 @@
+from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
     col,
     dayofmonth,
@@ -9,10 +10,17 @@ from pyspark.sql.functions import (
     year,
 )
 
-from pipeline_utils import CLEAN_DIR, INGEST_DIR, as_posix, create_spark
+from pipeline_utils import (
+    CLEAN_DIR,
+    INGEST_DIR,
+    as_posix,
+    create_spark,
+    require_files,
+    stop_spark,
+)
 
 
-def clean_trips(trips):
+def clean_trips(trips: DataFrame) -> DataFrame:
     typed = trips.select(
         col("VendorID").cast("int").alias("vendor_id"),
         col("tpep_pickup_datetime").cast("timestamp").alias("pickup_at"),
@@ -48,9 +56,15 @@ def clean_trips(trips):
                 "total_amount",
             ]
         )
-        .withColumn("passenger_count", when(col("passenger_count").isNull(), lit(1)).otherwise(col("passenger_count")))
+        .withColumn(
+            "passenger_count",
+            when(col("passenger_count").isNull(), lit(1)).otherwise(col("passenger_count")),
+        )
         .withColumn("pickup_date", to_date(col("pickup_at")))
-        .withColumn("trip_duration_minutes", spark_round((col("dropoff_at").cast("long") - col("pickup_at").cast("long")) / 60, 2))
+        .withColumn(
+            "trip_duration_minutes",
+            spark_round((col("dropoff_at").cast("long") - col("pickup_at").cast("long")) / 60, 2),
+        )
         .withColumn("year", year(col("pickup_date")))
         .withColumn("month", month(col("pickup_date")))
         .withColumn("day", dayofmonth(col("pickup_date")))
@@ -69,7 +83,7 @@ def clean_trips(trips):
     )
 
 
-def clean_zones(zones):
+def clean_zones(zones: DataFrame) -> DataFrame:
     return (
         zones.select(
             col("LocationID").cast("int").alias("location_id"),
@@ -83,25 +97,31 @@ def clean_zones(zones):
 
 
 def main() -> None:
+    require_files(INGEST_DIR / "yellow_taxi_trips", INGEST_DIR / "taxi_zones")
     spark = create_spark("TaxiBatchETLClean")
 
-    trips = spark.read.parquet(as_posix(INGEST_DIR / "yellow_taxi_trips"))
-    zones = spark.read.parquet(as_posix(INGEST_DIR / "taxi_zones"))
+    try:
+        trips = spark.read.parquet(as_posix(INGEST_DIR / "yellow_taxi_trips"))
+        zones = spark.read.parquet(as_posix(INGEST_DIR / "taxi_zones"))
 
-    clean_trips_df = clean_trips(trips)
-    clean_zones_df = clean_zones(zones)
+        clean_trips_df = clean_trips(trips)
+        clean_zones_df = clean_zones(zones)
 
-    (
-        clean_trips_df.write.mode("overwrite")
-        .partitionBy("year", "month")
-        .parquet(as_posix(CLEAN_DIR / "yellow_taxi_trips"))
-    )
-    clean_zones_df.write.mode("overwrite").parquet(as_posix(CLEAN_DIR / "taxi_zones"))
+        trip_count = clean_trips_df.count()
+        zone_count = clean_zones_df.count()
 
-    print(f"Cleaned taxi trip rows: {clean_trips_df.count():,}")
-    print(f"Cleaned taxi zone rows: {clean_zones_df.count():,}")
+        (
+            clean_trips_df.write.mode("overwrite")
+            .option("maxRecordsPerFile", 250000)
+            .partitionBy("year", "month")
+            .parquet(as_posix(CLEAN_DIR / "yellow_taxi_trips"))
+        )
+        clean_zones_df.write.mode("overwrite").parquet(as_posix(CLEAN_DIR / "taxi_zones"))
 
-    spark.stop()
+        print(f"Cleaned taxi trip rows: {trip_count:,}")
+        print(f"Cleaned taxi zone rows: {zone_count:,}")
+    finally:
+        stop_spark(spark)
 
 
 if __name__ == "__main__":

@@ -1,26 +1,36 @@
-from pipeline_utils import INGEST_DIR, RAW_DIR, as_posix, create_spark
+from pipeline_utils import (
+    INGEST_DIR,
+    TAXI_TRIPS_FILE,
+    TAXI_ZONES_FILE,
+    as_posix,
+    create_spark,
+    require_files,
+    stop_spark,
+)
 
 
 def main() -> None:
+    require_files(TAXI_TRIPS_FILE, TAXI_ZONES_FILE)
     spark = create_spark("TaxiBatchETLIngest")
 
-    trips = spark.read.parquet(as_posix(RAW_DIR / "yellow_tripdata_2024-01.parquet"))
-    zones = (
-        spark.read.option("header", True)
-        .option("inferSchema", True)
-        .csv(as_posix(RAW_DIR / "taxi_zone_lookup.csv"))
-    )
+    try:
+        trips = spark.read.parquet(as_posix(TAXI_TRIPS_FILE))
+        zones = (
+            spark.read.option("header", True)
+            .option("inferSchema", True)
+            .csv(as_posix(TAXI_ZONES_FILE))
+        )
 
-    (
-        trips.write.mode("overwrite")
-        .parquet(as_posix(INGEST_DIR / "yellow_taxi_trips"))
-    )
-    zones.write.mode("overwrite").parquet(as_posix(INGEST_DIR / "taxi_zones"))
+        trip_count = trips.count()
+        zone_count = zones.count()
 
-    print(f"Ingested {trips.count():,} taxi trip rows.")
-    print(f"Ingested {zones.count():,} taxi zone rows.")
+        trips.write.mode("overwrite").parquet(as_posix(INGEST_DIR / "yellow_taxi_trips"))
+        zones.write.mode("overwrite").parquet(as_posix(INGEST_DIR / "taxi_zones"))
 
-    spark.stop()
+        print(f"Ingested {trip_count:,} taxi trip rows.")
+        print(f"Ingested {zone_count:,} taxi zone rows.")
+    finally:
+        stop_spark(spark)
 
 
 if __name__ == "__main__":

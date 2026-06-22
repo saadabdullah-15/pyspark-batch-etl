@@ -33,9 +33,11 @@ src/
   01_ingest.py
   02_clean.py
   03_transform.py
+  04_validate.py
   day1_basics.py
   pipeline_utils.py
 README.md
+run_pipeline.py
 requirements.txt
 ```
 
@@ -81,6 +83,10 @@ Analytics outputs:
 
 Tables are written to `data/processed/analytics/` as Parquet. Tables containing `year` and `month` are partitioned by those columns.
 
+## Validation Layer
+
+`src/04_validate.py` checks that each expected analytics table exists, contains the expected core columns, and is not empty. This gives the project a quick quality gate after transformations finish.
+
 ## How to Run
 
 Create and activate a virtual environment, then install dependencies:
@@ -102,12 +108,28 @@ pyspark-batch-etl\hadoop\bin\hadoop.dll
 
 The project automatically sets `HADOOP_HOME` to `pyspark-batch-etl\hadoop` when `winutils.exe` exists. These binaries are ignored by Git because they are local Windows runtime helpers, not pipeline source code.
 
-Run each pipeline stage from the project root:
+Run the full pipeline from the project root:
+
+```powershell
+python run_pipeline.py
+```
+
+Or run each pipeline stage manually:
 
 ```powershell
 python src\01_ingest.py
 python src\02_clean.py
 python src\03_transform.py
+python src\04_validate.py
+```
+
+You can override Spark shuffle partitions for local experiments:
+
+```powershell
+$env:SPARK_MASTER = "local[4]"
+$env:SPARK_DRIVER_MEMORY = "4g"
+$env:SPARK_SQL_SHUFFLE_PARTITIONS = "4"
+python run_pipeline.py
 ```
 
 Optional Day 1 basics exercise:

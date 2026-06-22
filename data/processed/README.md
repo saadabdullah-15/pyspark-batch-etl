@@ -8,6 +8,13 @@ Run the pipeline scripts from the project root to recreate it:
 python src\01_ingest.py
 python src\02_clean.py
 python src\03_transform.py
+python src\04_validate.py
+```
+
+You can also run the complete flow with:
+
+```powershell
+python run_pipeline.py
 ```
 
 Expected generated layers:
