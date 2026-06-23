@@ -1,138 +1,27 @@
-# PySpark Batch ETL Pipeline for Analytics-Ready Data
+# PySpark Batch ETL Pipeline with Airflow
 
-This project builds a batch data pipeline with PySpark and orchestrates it with Apache Airflow. It ingests raw NYC Yellow Taxi data, cleans and validates trip records, enriches trips with taxi zone metadata, and writes analytics-ready Parquet tables.
+Batch data engineering project that uses PySpark to turn raw NYC Yellow Taxi data into analytics-ready Parquet tables, with Apache Airflow orchestrating the pipeline stages.
 
-The project is organized as a two-week data engineering portfolio build:
+The repository shows an end-to-end local workflow:
 
-- Week 1: built the PySpark batch ETL pipeline.
-- Week 2: added Apache Airflow orchestration for task order, scheduling, retries, and logs.
+- ingest raw taxi trip and zone lookup files
+- clean and validate trip records
+- enrich trips with pickup and dropoff zone metadata
+- build analytics tables with PySpark DataFrame APIs and Spark SQL
+- orchestrate the stages with an Airflow DAG
 
-## Problem
+## Why This Project Exists
 
-Raw operational data usually contains inconsistent types, missing values, duplicates, invalid records, and fields that are not directly useful for reporting. The goal is to turn raw taxi trip files into clean, partitioned tables that can support analysis such as revenue trends, payment performance, and pickup-zone performance.
+Raw operational data often contains inconsistent types, missing values, duplicate rows, invalid records, and fields that are not immediately useful for reporting. This project demonstrates how to move from raw local files to a small analytics layer that can answer questions about revenue, payment methods, trip distances, and pickup-zone performance.
 
 ## Dataset
 
-The pipeline uses two local source files:
+The main pipeline expects these files in `data/raw/`:
 
-- `data/raw/yellow_tripdata_2024-01.parquet`: January 2024 NYC Yellow Taxi trip records.
-- `data/raw/taxi_zone_lookup.csv`: taxi location metadata used to enrich pickup and dropoff locations.
+- `yellow_tripdata_2024-01.parquet`: January 2024 NYC Yellow Taxi trip records.
+- `taxi_zone_lookup.csv`: NYC taxi zone metadata used to enrich pickup and dropoff locations.
 
-Small `orders.csv` and `customers.csv` files are also included for the Day 1 PySpark basics exercise in `src/day1_basics.py`.
-
-The taxi trip Parquet file is intentionally ignored by Git because it is a large raw dataset. Download the January 2024 Yellow Taxi trip Parquet file from the NYC Taxi & Limousine Commission trip record data page and place it at `data/raw/yellow_tripdata_2024-01.parquet` before running the full taxi pipeline.
-
-## Pipeline Architecture
-
-```text
-Raw Taxi Files -> PySpark Ingest -> Cleaning and Validation -> Transformations -> Partitioned Parquet Analytics Tables
-```
-
-PySpark performs the actual data processing. Airflow controls when each processing step runs, the dependency order, retries, and task-level logs.
-
-## Airflow Architecture
-
-```text
-Raw data
-   ↓
-Airflow DAG
-   ↓
-ingest_raw_data
-   ↓
-clean_data
-   ↓
-transform_data
-   ↓
-run_data_quality_checks
-   ↓
-Processed analytics output
-```
-
-The Airflow DAG is defined in `dags/etl_pipeline_dag.py` with DAG ID `pyspark_batch_etl_pipeline`. It runs the same PySpark stage scripts used by the manual runner, so the orchestration layer stays small and easy to inspect.
-
-## Project Structure
-
-```text
-dags/
-  etl_pipeline_dag.py
-data/
-  raw/
-  processed/
-docs/
-  screenshots/
-src/
-  01_ingest.py
-  02_clean.py
-  03_transform.py
-  04_validate.py
-  day1_basics.py
-  pipeline_utils.py
-README.md
-run_pipeline.py
-requirements.txt
-```
-
-## Raw Layer
-
-`src/01_ingest.py` reads the source Parquet and CSV files from `data/raw/` and writes them as Parquet under `data/processed/raw/`.
-
-Outputs:
-
-- `data/processed/raw/yellow_taxi_trips`
-- `data/processed/raw/taxi_zones`
-
-## Clean Layer
-
-`src/02_clean.py` standardizes columns, casts data types, parses dates, removes duplicates, fills basic null values, and filters invalid records.
-
-Cleaning rules include:
-
-- Drop rows missing required timestamps, locations, distance, fare, or total amount.
-- Cast numeric and timestamp fields to explicit Spark types.
-- Parse `pickup_date`, `year`, `month`, and `day`.
-- Fill missing passenger count with `1`.
-- Remove invalid trips with negative fares, non-positive distance, impossible passenger counts, or pickup/dropoff dates outside January 2024.
-- Write clean trips partitioned by `year` and `month`.
-
-Outputs:
-
-- `data/processed/clean/yellow_taxi_trips`
-- `data/processed/clean/taxi_zones`
-
-## Analytics Layer
-
-`src/03_transform.py` enriches clean taxi trips with pickup and dropoff zone names, then writes analytics tables using both PySpark DataFrame operations and Spark SQL.
-
-Analytics outputs:
-
-- `daily_revenue`: daily trip count, revenue, average revenue, and average trip distance.
-- `pickup_zone_performance`: pickup borough and zone revenue performance.
-- `payment_type_performance`: trip and revenue metrics by payment method.
-- `trip_distance_segments`: trips grouped into short, medium, and long distance bands.
-- `monthly_orders`: monthly trip and revenue summary built with Spark SQL.
-- `customer_segments`: borough and trip-length segments built with Spark SQL.
-
-Tables are written to `data/processed/analytics/` as Parquet. Tables containing `year` and `month` are partitioned by those columns.
-
-## Validation Layer
-
-`src/04_validate.py` checks that each expected analytics table exists, contains the expected core columns, and is not empty. This gives the project a quick quality gate after transformations finish.
-
-## How to Run Locally
-
-Create and activate a virtual environment, then install dependencies:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-PySpark also needs Java available on your `PATH`. Use Java 17 for this project; newer Java releases can fail inside Hadoop with `getSubject is not supported`.
-
-For production Airflow installs, the official Airflow constraints files are recommended. This portfolio project keeps `requirements.txt` small and pinned to the versions used locally.
-
-Download the January 2024 Yellow Taxi Parquet file before running the full pipeline:
+The taxi trip Parquet file is ignored by Git because it is a large raw dataset. Download it from the NYC Taxi & Limousine Commission trip record data source before running the full pipeline:
 
 ```bash
 curl -L --fail --create-dirs \
@@ -140,29 +29,162 @@ curl -L --fail --create-dirs \
   https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet
 ```
 
-On Linux or WSL, run with Java 17:
+The small `orders.csv` and `customers.csv` files are included for the optional PySpark basics exercise in `src/day1_basics.py`.
+
+## Architecture
+
+```text
+data/raw/
+   |
+   v
+src/01_ingest.py
+   |
+   v
+data/processed/raw/
+   |
+   v
+src/02_clean.py
+   |
+   v
+data/processed/clean/
+   |
+   v
+src/03_transform.py
+   |
+   v
+data/processed/analytics/
+   |
+   v
+src/04_validate.py
+```
+
+Airflow runs the same stage scripts through `spark-submit` and manages task order, retries, scheduling, and logs.
+
+```text
+ingest_raw_data -> clean_data -> transform_data -> run_data_quality_checks
+```
+
+The DAG is defined in `dags/etl_pipeline_dag.py` with DAG ID `pyspark_batch_etl_pipeline`.
+
+## Project Structure
+
+```text
+.
+|-- dags/
+|   `-- etl_pipeline_dag.py
+|-- data/
+|   |-- raw/
+|   |   |-- customers.csv
+|   |   |-- orders.csv
+|   |   `-- taxi_zone_lookup.csv
+|   `-- processed/
+|       `-- README.md
+|-- docs/
+|   `-- screenshots/
+|-- hadoop/
+|   `-- bin/
+|       `-- README.md
+|-- src/
+|   |-- 01_ingest.py
+|   |-- 02_clean.py
+|   |-- 03_transform.py
+|   |-- 04_validate.py
+|   |-- day1_basics.py
+|   `-- pipeline_utils.py
+|-- run_pipeline.py
+|-- requirements.txt
+`-- README.md
+```
+
+Generated Spark output under `data/processed/` is ignored by Git and can be recreated by running the pipeline.
+
+## Pipeline Stages
+
+### 1. Ingest
+
+`src/01_ingest.py` reads the raw taxi trip Parquet file and taxi zone CSV file, then writes both datasets as Parquet under `data/processed/raw/`.
+
+Outputs:
+
+- `data/processed/raw/yellow_taxi_trips`
+- `data/processed/raw/taxi_zones`
+
+### 2. Clean
+
+`src/02_clean.py` standardizes column names and types, removes duplicate rows, fills missing passenger counts, derives date columns, and filters invalid trips.
+
+Important cleaning rules:
+
+- require valid pickup and dropoff timestamps
+- require pickup and dropoff location IDs
+- keep only January 2024 pickup dates
+- require dropoff time after pickup time
+- keep trips up to 24 hours long
+- keep passenger counts from 1 to 6
+- keep positive trip distances up to 100 miles
+- remove negative fare and total amounts
+- write clean trips partitioned by `year` and `month`
+
+Outputs:
+
+- `data/processed/clean/yellow_taxi_trips`
+- `data/processed/clean/taxi_zones`
+
+### 3. Transform
+
+`src/03_transform.py` enriches clean trips with pickup and dropoff borough/zone names, labels payment types, and creates analytics tables.
+
+Analytics outputs:
+
+- `daily_revenue`
+- `pickup_zone_performance`
+- `payment_type_performance`
+- `trip_distance_segments`
+- `monthly_orders`
+- `customer_segments`
+
+Tables are written as Parquet to `data/processed/analytics/`. Tables with `year` and `month` columns are partitioned by those columns.
+
+### 4. Validate
+
+`src/04_validate.py` checks that each expected analytics table exists, contains required columns, and has at least one row. This gives the pipeline a lightweight data quality gate after transformation.
+
+## Requirements
+
+- Python 3.10+
+- Java 17
+- PySpark
+- Apache Airflow
+
+Install the Python dependencies from `requirements.txt`:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+If your shell does not provide a `python` command, use `python3` for the setup and run commands.
+
+PySpark needs Java available on your `PATH`. Java 17 is recommended for this project because newer Java releases can fail in local Hadoop/Spark paths with errors such as `getSubject is not supported`.
+
+On Linux or WSL, set `JAVA_HOME` if it is not already configured:
 
 ```bash
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-python run_pipeline.py
 ```
 
-On Windows, local Parquet writes may fail if Hadoop's Windows helper files are not configured. Install Hadoop-compatible Windows helper files and place them here:
+`src/pipeline_utils.py` also tries to detect common Java 17 install locations automatically.
 
-```powershell
-pyspark-batch-etl\hadoop\bin\winutils.exe
-pyspark-batch-etl\hadoop\bin\hadoop.dll
-```
+## Run Locally
 
-The project automatically sets `HADOOP_HOME` to `pyspark-batch-etl\hadoop` when `winutils.exe` exists. These binaries are ignored by Git because they are local Windows runtime helpers, not pipeline source code.
-
-Run the full pipeline from the project root:
+From the project root, run the full pipeline:
 
 ```bash
 python run_pipeline.py
 ```
 
-Or run each pipeline stage manually:
+Or run each stage manually:
 
 ```bash
 python src/01_ingest.py
@@ -171,7 +193,7 @@ python src/03_transform.py
 python src/04_validate.py
 ```
 
-You can override Spark shuffle partitions for local experiments:
+Optional local Spark settings:
 
 ```bash
 export SPARK_MASTER="local[4]"
@@ -180,28 +202,7 @@ export SPARK_SQL_SHUFFLE_PARTITIONS="4"
 python run_pipeline.py
 ```
 
-To run with Airflow, keep the virtual environment active and start Airflow from the project root:
-
-```bash
-export AIRFLOW_HOME="$(pwd)"
-airflow standalone
-```
-
-Then open the Airflow UI, enable the `pyspark_batch_etl_pipeline` DAG, and trigger it manually. You can also trigger it from the command line:
-
-```bash
-airflow dags trigger pyspark_batch_etl_pipeline
-```
-
-Optional Day 1 basics exercise:
-
-```bash
-python src/day1_basics.py
-```
-
-## Example Outputs
-
-After running the full pipeline, the generated tables are available under:
+After a successful run, analytics tables are available under:
 
 ```text
 data/processed/analytics/daily_revenue/
@@ -212,10 +213,60 @@ data/processed/analytics/monthly_orders/
 data/processed/analytics/customer_segments/
 ```
 
-You can inspect one table with PySpark:
+Inspect one output table with PySpark:
 
 ```bash
 python -c "from pyspark.sql import SparkSession; spark=SparkSession.builder.master('local[*]').getOrCreate(); spark.read.parquet('data/processed/analytics/daily_revenue').show(); spark.stop()"
+```
+
+## Run with Airflow
+
+The Airflow DAG expects the project virtual environment to exist at `.venv/` because each task calls:
+
+```text
+.venv/bin/spark-submit
+```
+
+Start Airflow from the project root:
+
+```bash
+source .venv/bin/activate
+export AIRFLOW_HOME="$(pwd)"
+airflow standalone
+```
+
+Then open the Airflow UI, enable the `pyspark_batch_etl_pipeline` DAG, and trigger it manually. You can also trigger it from the command line:
+
+```bash
+airflow dags trigger pyspark_batch_etl_pipeline
+```
+
+The DAG has a daily schedule and `catchup=False`, but this project uses a static January 2024 sample file, so manual triggering is usually the clearest way to demonstrate the pipeline.
+
+## Windows Notes
+
+On Windows, local PySpark Parquet writes may require Hadoop helper files:
+
+```text
+hadoop/bin/winutils.exe
+hadoop/bin/hadoop.dll
+```
+
+These binaries are ignored by Git. If `hadoop/bin/winutils.exe` exists, the project automatically sets `HADOOP_HOME` and updates `PATH` for the local Spark session.
+
+## Optional PySpark Basics Exercise
+
+Run the small learning exercise that uses `orders.csv` and `customers.csv`:
+
+```bash
+python src/day1_basics.py
+```
+
+This writes sample outputs to:
+
+```text
+data/processed/enriched_orders/
+data/processed/product_revenue/
 ```
 
 ## Airflow Screenshots
@@ -235,15 +286,17 @@ The `docs/screenshots/` folder contains screenshots from a successful local Airf
 
 ![Airflow task logs](docs/screenshots/airflow_task_logs.jpg)
 
-## What I Learned
+## What This Demonstrates
 
-- How to read CSV and Parquet files with Spark.
-- How to clean data using DataFrame operations such as `select`, `withColumn`, `dropna`, `dropDuplicates`, `filter`, `groupBy`, and `join`.
-- How to use Spark SQL for analytics transformations.
-- How to write analytics-ready Parquet tables.
-- How partitioning by `year` and `month` improves the layout for batch analytics workloads.
-- How to orchestrate a PySpark batch pipeline with Airflow tasks, dependencies, retries, and logs.
+- Reading CSV and Parquet files with Spark.
+- Building a multi-stage batch ETL pipeline.
+- Cleaning data with DataFrame operations such as `select`, `withColumn`, `dropna`, `dropDuplicates`, and `filter`.
+- Enriching datasets with joins.
+- Creating aggregate analytics tables with DataFrame APIs and Spark SQL.
+- Writing partitioned Parquet outputs.
+- Running a local data quality validation step.
+- Orchestrating PySpark jobs with Airflow tasks, dependencies, retries, and logs.
 
-## CV / LinkedIn Summary
+## Portfolio Summary
 
-Built a batch ETL pipeline using PySpark and Apache Airflow to ingest raw taxi trip data, clean and validate records, perform SQL-style transformations, orchestrate task execution, and write analytics-ready partitioned Parquet tables.
+Built a local batch ETL pipeline using PySpark and Apache Airflow to ingest NYC Yellow Taxi data, clean and validate records, enrich trips with zone metadata, create analytics-ready Parquet tables, and orchestrate the workflow with task-level retries and logs.
