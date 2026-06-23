@@ -15,6 +15,26 @@ TAXI_TRIPS_FILE = RAW_DIR / "yellow_tripdata_2024-01.parquet"
 TAXI_ZONES_FILE = RAW_DIR / "taxi_zone_lookup.csv"
 ORDERS_FILE = RAW_DIR / "orders.csv"
 CUSTOMERS_FILE = RAW_DIR / "customers.csv"
+LOCAL_JAVA_HOME_CANDIDATES = (
+    Path("/usr/lib/jvm/java-17-openjdk-amd64"),
+    Path("/usr/lib/jvm/java-17-openjdk"),
+    Path("/usr/lib/jvm/temurin-17-jdk-amd64"),
+)
+
+
+def configure_java_home() -> None:
+    if os.environ.get("JAVA_HOME"):
+        return
+
+    java_home_candidates = list(LOCAL_JAVA_HOME_CANDIDATES)
+    linux_jvm_dir = Path("/usr/lib/jvm")
+    if linux_jvm_dir.exists():
+        java_home_candidates.extend(sorted(linux_jvm_dir.glob("*17*")))
+
+    for java_home in java_home_candidates:
+        if (java_home / "bin" / "java").exists():
+            os.environ["JAVA_HOME"] = str(java_home)
+            return
 
 
 def configure_local_hadoop() -> None:
@@ -33,6 +53,7 @@ def configure_local_hadoop() -> None:
 
 
 def create_spark(app_name: str) -> SparkSession:
+    configure_java_home()
     configure_local_hadoop()
 
     spark_master = os.environ.get("SPARK_MASTER", "local[2]")
