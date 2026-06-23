@@ -1,10 +1,17 @@
 .venv/
 __pycache__/
 *.pyc
+logs/
+*.log
 
-data/processed/*
-!data/processed/README.md
+data/processed/
 data/raw/*.parquet
+
+airflow.cfg
+airflow.db
+webserver_config.py
+standalone_admin_password.txt
+simple_auth_manager_passwords.json.generated
+
 hadoop/bin/winutils.exe
 hadoop/bin/hadoop.dll
-*.log
