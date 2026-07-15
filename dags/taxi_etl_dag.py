@@ -20,19 +20,15 @@ PROJECT_DIR = Path(
 ).resolve()
 
 
-def default_spark_submit() -> str:
-    """Prefer the WSL environment when this checkout contains both environments."""
+def default_python_bin() -> str:
+    """Return the project-local Python used by Airflow tasks."""
 
-    candidates = (
-        PROJECT_DIR / ".venv-wsl" / "bin" / "spark-submit",
-        PROJECT_DIR / ".venv" / "bin" / "spark-submit",
-    )
-    return str(next((path for path in candidates if path.exists()), candidates[-1]))
+    return str(PROJECT_DIR / ".venv" / "bin" / "python")
 
 
-SPARK_SUBMIT = os.environ.get(
-    "SPARK_SUBMIT_BIN",
-    default_spark_submit(),
+PYTHON_BIN = os.environ.get(
+    "TAXI_ETL_PYTHON_BIN",
+    default_python_bin(),
 )
 PIPELINE_RUNNER = PROJECT_DIR / "run_pipeline.py"
 
@@ -43,7 +39,7 @@ DEFAULT_ARGS = {
 }
 
 
-def spark_submit_command(stage_name: str) -> str:
+def pipeline_command(stage_name: str) -> str:
     """Build a safely quoted command for one stage."""
 
     return " ".join(
@@ -51,7 +47,7 @@ def spark_submit_command(stage_name: str) -> str:
             "cd",
             shlex.quote(str(PROJECT_DIR)),
             "&&",
-            shlex.quote(SPARK_SUBMIT),
+            shlex.quote(PYTHON_BIN),
             shlex.quote(str(PIPELINE_RUNNER)),
             shlex.quote(stage_name),
         ]
@@ -71,22 +67,22 @@ with DAG(
 ) as dag:
     ingest = BashOperator(
         task_id="ingest_raw_data",
-        bash_command=spark_submit_command("ingest"),
+        bash_command=pipeline_command("ingest"),
     )
 
     clean = BashOperator(
         task_id="clean_data",
-        bash_command=spark_submit_command("clean"),
+        bash_command=pipeline_command("clean"),
     )
 
     transform = BashOperator(
         task_id="transform_data",
-        bash_command=spark_submit_command("transform"),
+        bash_command=pipeline_command("transform"),
     )
 
     validate = BashOperator(
         task_id="run_data_quality_checks",
-        bash_command=spark_submit_command("validate"),
+        bash_command=pipeline_command("validate"),
     )
 
     ingest >> clean >> transform >> validate
