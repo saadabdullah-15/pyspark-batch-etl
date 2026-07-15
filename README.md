@@ -1,8 +1,9 @@
 # PySpark and Airflow Batch ETL Pipeline
 
 A learning-focused, production-shaped batch data pipeline that turns raw NYC
-Yellow Taxi records into validated Parquet analytics tables. PySpark performs the
-data work and Apache Airflow optionally orchestrates the four stages.
+Yellow Taxi records into validated analytics tables. PySpark performs the data
+work, Apache Airflow orchestrates the stages, and PostgreSQL stores selected
+analytics outputs for SQL validation.
 
 This repository is designed to be readable in two ways:
 
@@ -26,6 +27,9 @@ NYC taxi Parquet + zone CSV
             |
             v
   4. validate  -> schema, key, row, and metric checks
+            |
+            v
+  5. load PostgreSQL -> queryable analytics tables
 ```
 
 Every stage can run independently, while `all` runs them in dependency order.
@@ -40,6 +44,9 @@ Outputs use overwrite mode, so rerunning the same reporting month is idempotent.
 |-- data/
 |   |-- raw/                     # Downloaded and sample source files
 |   `-- processed/               # Generated raw, clean, and analytics layers
+|-- sql/
+|   |-- create_tables.sql        # PostgreSQL analytics schema
+|   `-- validation_queries.sql   # SQL checks for loaded tables
 |-- docs/
 |   |-- architecture.md          # Design decisions and extension points
 |   |-- learning-guide.md        # Guided code-reading path
@@ -51,10 +58,12 @@ Outputs use overwrite mode, so rerunning the same reporting month is idempotent.
 |   |-- cli.py                   # Command-line interface
 |   |-- config.py                # Paths and environment configuration
 |   |-- pipeline.py              # Stage I/O and execution order
+|   |-- postgres.py              # PostgreSQL loading step
 |   |-- quality.py               # Analytics data contracts
 |   |-- schemas.py               # Raw source expectations
 |   |-- spark.py                 # Spark session configuration
 |   `-- transformations.py       # Side-effect-free business logic
+|-- docker-compose.yml           # Local PostgreSQL service
 |-- tests/                       # Configuration, transformation, and quality tests
 |-- pyproject.toml               # Package and tool configuration
 |-- run_pipeline.py              # Simple repository entry point
@@ -244,6 +253,8 @@ tables. Four demonstrate the DataFrame API and two demonstrate Spark SQL.
 | `borough_trip_summary` | one row per borough and distance band | How does trip length vary by pickup borough? |
 
 The tables are written under `data/processed/analytics/<table-name>/`.
+The three tables loaded into PostgreSQL are also exported as headered CSV folders
+under `data/processed/postgres_exports/<table-name>/`.
 
 ### 4. Validate
 
@@ -258,6 +269,20 @@ DataFrames. For every table it checks:
 
 A failed rule raises an error, which also marks the Airflow task as failed.
 
+### 5. Load PostgreSQL
+
+The PostgreSQL loader reads selected Spark CSV exports and appends them into
+pre-created tables in the `analytics` schema:
+
+```text
+analytics.daily_revenue
+analytics.pickup_zone_summary
+analytics.payment_method_summary
+```
+
+The loader truncates each target table first, so rerunning the pipeline replaces
+the current reporting month instead of duplicating rows.
+
 ## Generated outputs
 
 Local runs create overwriteable runtime outputs under `data/processed/`:
@@ -267,6 +292,8 @@ Local runs create overwriteable runtime outputs under `data/processed/`:
 - `data/processed/clean/` contains cleaned trips partitioned by `year` and
   `month`, plus cleaned zones.
 - `data/processed/analytics/` contains the six validated analytics tables.
+- `data/processed/postgres_exports/` contains CSV mirrors of the selected tables
+  loaded into PostgreSQL.
 - `data/processed/examples/` is created only by the optional PySpark basics
   exercise.
 
@@ -287,6 +314,11 @@ Defaults are suitable for a laptop and can be overridden without editing code.
 | `SPARK_SQL_SHUFFLE_PARTITIONS` | `4` | Number of local shuffle partitions |
 | `SPARK_LOG_LEVEL` | `WARN` | Spark's log verbosity |
 | `SPARK_TIME_ZONE` | `America/New_York` | Timestamp interpretation for taxi data |
+| `POSTGRES_USER` | `etl_user` | PostgreSQL user for the analytics loader |
+| `POSTGRES_PASSWORD` | `etl_password` | PostgreSQL password for the analytics loader |
+| `POSTGRES_HOST` | `localhost` | PostgreSQL host |
+| `POSTGRES_PORT` | `5432` | PostgreSQL port |
+| `POSTGRES_DB` | `etl_db` | PostgreSQL database |
 
 PowerShell example:
 
@@ -306,6 +338,62 @@ Changing the reporting period also changes the expected source filename. Setting
 year `2025` and month `2`, for example, expects
 `data/raw/yellow_tripdata_2025-02.parquet`.
 
+## PostgreSQL with Docker Compose
+
+Week 3 adds PostgreSQL as a local analytics database. Only PostgreSQL is
+containerized; PySpark and Airflow still run from the project virtual environment.
+
+Start PostgreSQL:
+
+```bash
+docker compose up -d
+docker ps
+```
+
+The first startup creates the `analytics` schema and tables from
+`sql/create_tables.sql`. Confirm the tables:
+
+```bash
+docker exec -it etl_postgres psql -U etl_user -d etl_db
+```
+
+Inside `psql`:
+
+```sql
+SELECT current_database();
+\dt analytics.*
+\q
+```
+
+After running the transform stage, load the selected analytics tables:
+
+```bash
+python run_pipeline.py transform
+python -m taxi_etl.postgres
+```
+
+Validate the loaded tables with SQL:
+
+```bash
+docker exec -i etl_postgres psql -U etl_user -d etl_db < sql/validation_queries.sql
+```
+
+Expected row counts for the default January 2024 data are:
+
+```text
+analytics.daily_revenue: 31 rows
+analytics.pickup_zone_summary: 257 rows
+analytics.payment_method_summary: 5 rows
+```
+
+If `sql/create_tables.sql` changes after the volume already exists, recreate the
+database volume:
+
+```bash
+docker compose down -v
+docker compose up -d
+```
+
 ## Tests and code quality
 
 Tests use small in-memory DataFrames; the large taxi download is not required.
@@ -323,8 +411,9 @@ contracts.
 ## Airflow orchestration
 
 The DAG uses Bash commands and is intended for Linux or WSL. Airflow should run
-from the project-local `.venv`, and each task calls one pipeline stage with
-`.venv/bin/python run_pipeline.py <stage>`.
+from the project-local `.venv`. Pipeline tasks call one stage with
+`.venv/bin/python run_pipeline.py <stage>`, and the final database task calls
+`.venv/bin/python -m taxi_etl.postgres`.
 
 ```bash
 source .venv/bin/activate
@@ -344,7 +433,7 @@ schedule.
 The tasks run in this order:
 
 ```text
-ingest_raw_data -> clean_data -> transform_data -> run_data_quality_checks
+ingest_raw_data -> clean_data -> transform_data -> run_data_quality_checks -> load_to_postgres
 ```
 
 Airflow can point to a different checkout or Python executable with:
@@ -377,8 +466,8 @@ AIRFLOW__CORE__LOAD_EXAMPLES=False \
 airflow dags test pyspark_batch_etl_pipeline 2024-01-03
 ```
 
-This executes all four Airflow tasks in order: ingest, clean, transform, and
-validate.
+This executes all five Airflow tasks in order: ingest, clean, transform,
+validate, and load PostgreSQL.
 
 ## Optional PySpark basics exercise
 
@@ -399,7 +488,8 @@ writes with the small orders and customers files. Its output is isolated under
 3. [`transformations.py`](src/taxi_etl/transformations.py)
 4. [`pipeline.py`](src/taxi_etl/pipeline.py)
 5. [`quality.py`](src/taxi_etl/quality.py)
-6. [`taxi_etl_dag.py`](dags/taxi_etl_dag.py)
+6. [`postgres.py`](src/taxi_etl/postgres.py)
+7. [`taxi_etl_dag.py`](dags/taxi_etl_dag.py)
 
 For deeper design context, see [Architecture](docs/architecture.md).
 
@@ -428,6 +518,12 @@ environment when Airflow is also required.
 The DAG defaults to `.venv/bin/python` and runs `run_pipeline.py` directly. Set
 `TAXI_ETL_PYTHON_BIN` if Airflow should use a different Python executable.
 
+### PostgreSQL loader cannot connect
+
+Confirm the container is healthy with `docker ps`. If a local PostgreSQL service
+already uses port `5432`, stop that service or change the published port in
+`docker-compose.yml` and set `POSTGRES_PORT` to match.
+
 ### WSL Spark runs out of memory
 
 Local Spark runs are more reliable when WSL has enough memory assigned. If Spark
@@ -449,7 +545,8 @@ run, and task logs from a local execution.
 
 ## Ready for the next learning week
 
-This version provides a clean Week 2 foundation: reusable transformations,
-repeatable local runs, Airflow orchestration, tests, and explicit data contracts.
-Likely Week 3 extensions can now be added without rewriting the foundation—for
-example incremental loads, run metadata, stronger observability, or cloud storage.
+This version provides a clean Week 3 foundation: reusable transformations,
+repeatable local runs, Airflow orchestration, Dockerized PostgreSQL, SQL
+validation, tests, and explicit data contracts. Likely Week 4 extensions can now
+be added without rewriting the foundation—for example cloud storage, dbt models,
+incremental loads, or stronger observability.

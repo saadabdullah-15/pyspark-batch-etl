@@ -55,6 +55,10 @@ class PipelinePaths:
         return self.processed_dir / "analytics"
 
     @property
+    def postgres_export_dir(self) -> Path:
+        return self.processed_dir / "postgres_exports"
+
+    @property
     def hadoop_dir(self) -> Path:
         return self.project_root / "hadoop"
 

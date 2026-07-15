@@ -22,6 +22,13 @@ from taxi_etl.transformations import (
 
 LOGGER = logging.getLogger(__name__)
 MAX_RECORDS_PER_FILE = 250_000
+POSTGRES_EXPORT_TABLES = frozenset(
+    {
+        "daily_revenue",
+        "pickup_zone_summary",
+        "payment_method_summary",
+    }
+)
 
 
 def _write_parquet(
@@ -37,6 +44,15 @@ def _write_parquet(
     if partition_columns:
         writer = writer.partitionBy(*partition_columns)
     writer.parquet(spark_path(destination))
+
+
+def _write_csv(dataframe: DataFrame, destination: Path) -> None:
+    (
+        dataframe.coalesce(1)
+        .write.mode("overwrite")
+        .option("header", True)
+        .csv(spark_path(destination))
+    )
 
 
 def _run_with_spark(
@@ -156,6 +172,10 @@ def run_transform(config: PipelineConfig) -> None:
                     partition_columns=partitions,
                 )
                 LOGGER.info("Wrote analytics table: %s", table_name)
+
+                if table_name in POSTGRES_EXPORT_TABLES:
+                    _write_csv(dataframe, paths.postgres_export_dir / table_name)
+                    LOGGER.info("Wrote PostgreSQL CSV export: %s", table_name)
         finally:
             enriched_trips.unpersist()
 
