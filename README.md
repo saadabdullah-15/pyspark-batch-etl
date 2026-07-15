@@ -1,4 +1,4 @@
-# PySpark Batch ETL Pipeline
+# PySpark and Airflow Batch ETL Pipeline
 
 A learning-focused, production-shaped batch data pipeline that turns raw NYC
 Yellow Taxi records into validated Parquet analytics tables. PySpark performs the
