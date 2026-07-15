@@ -63,7 +63,8 @@ be found and read successfully.
 ### External scheduling: `dags/taxi_etl_dag.py`
 
 Airflow owns dependencies, retries, task state, and logs. Each Airflow task calls
-one CLI stage through `spark-submit`. The DAG contains no business logic.
+one CLI stage through the project-local Python runner. The DAG contains no
+business logic.
 
 ## Important design decisions
 

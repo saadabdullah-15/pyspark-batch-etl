@@ -132,6 +132,13 @@ python -m pip install -r requirements.txt
 ```
 
 The editable install provides both the Python package and a `taxi-etl` command.
+Install the development and Airflow extras into the same environment when you
+want to run tests, lint, and local orchestration:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pip install -r requirements-airflow.txt
+```
 
 #### Native Windows versus WSL
 
@@ -142,15 +149,17 @@ separate Linux environment:
 ```bash
 # Run these commands inside Ubuntu WSL.
 cd /mnt/g/pyspark-batch-etl
-python3 -m venv .venv-wsl
-source .venv-wsl/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements-dev.txt
 python run_pipeline.py
 ```
 
-The two environments are intentionally separate because Windows executables in
-`.venv` cannot run as Linux executables. Both directories are ignored by Git, and
-neither installation changes the system Python packages.
+Windows and WSL environments should stay separate because Windows executables
+cannot run as Linux executables. If the same checkout already has a Windows
+`.venv`, recreate it inside WSL before using the Bash commands. The virtual
+environment directory is ignored by Git, and it does not change the system Python
+packages.
 
 ### 3. Download the taxi Parquet file
 
@@ -249,6 +258,22 @@ DataFrames. For every table it checks:
 
 A failed rule raises an error, which also marks the Airflow task as failed.
 
+## Generated outputs
+
+Local runs create overwriteable runtime outputs under `data/processed/`:
+
+- `data/processed/raw/` contains stable Parquet copies of the source trips and
+  zone lookup.
+- `data/processed/clean/` contains cleaned trips partitioned by `year` and
+  `month`, plus cleaned zones.
+- `data/processed/analytics/` contains the six validated analytics tables.
+- `data/processed/examples/` is created only by the optional PySpark basics
+  exercise.
+
+Airflow also creates local metadata and logs under `.airflow/`. These generated
+directories, raw taxi Parquet files, logs, caches, and virtual environments are
+ignored by Git.
+
 ## Configuration
 
 Defaults are suitable for a laptop and can be overridden without editing code.
@@ -287,8 +312,8 @@ Tests use small in-memory DataFrames; the large taxi download is not required.
 
 ```text
 python -m pip install -r requirements-dev.txt
-python -m pytest
 python -m ruff check .
+python -m pytest -q
 ```
 
 The tests cover configuration boundaries, cleaning rules, zone normalization,
@@ -297,16 +322,18 @@ contracts.
 
 ## Airflow orchestration
 
-The DAG uses Bash commands and is intended for Linux or WSL. Install the optional
-orchestration dependencies in a separate local environment or add them to the
-project environment:
+The DAG uses Bash commands and is intended for Linux or WSL. Airflow should run
+from the project-local `.venv`, and each task calls one pipeline stage with
+`.venv/bin/python run_pipeline.py <stage>`.
 
 ```bash
-source .venv-wsl/bin/activate
+source .venv/bin/activate
 python -m pip install -r requirements-airflow.txt
-export AIRFLOW_HOME="$PWD/.airflow"
-export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
-export SPARK_SUBMIT_BIN="$PWD/.venv-wsl/bin/spark-submit"
+
+export AIRFLOW_HOME=/home/saad_abdullah/projects/pyspark-airflow-etl-project/.airflow
+export AIRFLOW__CORE__DAGS_FOLDER=/home/saad_abdullah/projects/pyspark-airflow-etl-project/dags
+export AIRFLOW__CORE__LOAD_EXAMPLES=False
+
 airflow standalone
 ```
 
@@ -320,11 +347,25 @@ The tasks run in this order:
 ingest_raw_data -> clean_data -> transform_data -> run_data_quality_checks
 ```
 
-Airflow can point to a different checkout or Spark executable with:
+Airflow can point to a different checkout or Python executable with:
 
 ```bash
 export TAXI_ETL_PROJECT_DIR=/path/to/pyspark-batch-etl
-export SPARK_SUBMIT_BIN=/path/to/spark-submit
+export TAXI_ETL_PYTHON_BIN=/path/to/.venv/bin/python
+```
+
+Useful local checks before starting the scheduler:
+
+```bash
+AIRFLOW_HOME=/home/saad_abdullah/projects/pyspark-airflow-etl-project/.airflow \
+AIRFLOW__CORE__DAGS_FOLDER=/home/saad_abdullah/projects/pyspark-airflow-etl-project/dags \
+AIRFLOW__CORE__LOAD_EXAMPLES=False \
+airflow dags list
+
+AIRFLOW_HOME=/home/saad_abdullah/projects/pyspark-airflow-etl-project/.airflow \
+AIRFLOW__CORE__DAGS_FOLDER=/home/saad_abdullah/projects/pyspark-airflow-etl-project/dags \
+AIRFLOW__CORE__LOAD_EXAMPLES=False \
+airflow tasks list pyspark_batch_etl_pipeline
 ```
 
 ## Optional PySpark basics exercise
@@ -370,10 +411,16 @@ binaries are ignored by Git and must come from a source you trust. The pipeline
 fails early with a readable list when they are absent. WSL is usually the simpler
 environment when Airflow is also required.
 
-### Airflow cannot find spark-submit
+### Airflow cannot find Python
 
-The DAG defaults to `.venv/bin/spark-submit`. Set `SPARK_SUBMIT_BIN` if the command
-lives elsewhere.
+The DAG defaults to `.venv/bin/python` and runs `run_pipeline.py` directly. Set
+`TAXI_ETL_PYTHON_BIN` if Airflow should use a different Python executable.
+
+### WSL Spark runs out of memory
+
+Local Spark runs are more reliable when WSL has enough memory assigned. If Spark
+workers exit unexpectedly under WSL, increase the WSL 2 memory limit in your
+Windows user `.wslconfig`, then restart WSL.
 
 ## Airflow screenshots
 
