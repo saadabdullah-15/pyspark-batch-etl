@@ -1,8 +1,19 @@
 .venv/
+.venv-wsl/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+build/
+dist/
+*.egg-info/
 logs/
 *.log
+.airflow/
+.sparkStaging/
+metastore_db/
+derby.log
 
 data/processed/
 data/raw/*.parquet
