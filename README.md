@@ -368,6 +368,18 @@ AIRFLOW__CORE__LOAD_EXAMPLES=False \
 airflow tasks list pyspark_batch_etl_pipeline
 ```
 
+Run the complete DAG locally without starting the scheduler:
+
+```bash
+AIRFLOW_HOME=/home/saad_abdullah/projects/pyspark-airflow-etl-project/.airflow \
+AIRFLOW__CORE__DAGS_FOLDER=/home/saad_abdullah/projects/pyspark-airflow-etl-project/dags \
+AIRFLOW__CORE__LOAD_EXAMPLES=False \
+airflow dags test pyspark_batch_etl_pipeline 2024-01-03
+```
+
+This executes all four Airflow tasks in order: ingest, clean, transform, and
+validate.
+
 ## Optional PySpark basics exercise
 
 After installing the project, run:
