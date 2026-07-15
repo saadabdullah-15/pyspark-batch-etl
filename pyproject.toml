@@ -9,7 +9,10 @@ description = "A student-friendly NYC taxi batch ETL pipeline built with PySpark
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "pandas>=2.3,<3",
+    "psycopg[binary]>=3.2,<4",
     "pyspark==4.1.2",
+    "sqlalchemy>=2.0,<3",
 ]
 
 [project.optional-dependencies]

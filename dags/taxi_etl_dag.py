@@ -1,7 +1,7 @@
 """Airflow orchestration for the local PySpark taxi ETL pipeline.
 
 The source dataset represents a fixed month, so this DAG is manually triggered.
-Each task runs exactly one CLI stage and Airflow records its logs and retry state.
+Each task runs exactly one pipeline action and Airflow records its logs and retry state.
 """
 
 from __future__ import annotations
@@ -54,6 +54,21 @@ def pipeline_command(stage_name: str) -> str:
     )
 
 
+def python_module_command(module_name: str) -> str:
+    """Build a safely quoted command for a project Python module."""
+
+    return " ".join(
+        [
+            "cd",
+            shlex.quote(str(PROJECT_DIR)),
+            "&&",
+            shlex.quote(PYTHON_BIN),
+            "-m",
+            shlex.quote(module_name),
+        ]
+    )
+
+
 with DAG(
     dag_id="pyspark_batch_etl_pipeline",
     default_args=DEFAULT_ARGS,
@@ -85,4 +100,9 @@ with DAG(
         bash_command=pipeline_command("validate"),
     )
 
-    ingest >> clean >> transform >> validate
+    load_postgres = BashOperator(
+        task_id="load_to_postgres",
+        bash_command=python_module_command("taxi_etl.postgres"),
+    )
+
+    ingest >> clean >> transform >> validate >> load_postgres
