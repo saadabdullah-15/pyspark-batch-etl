@@ -1,0 +1,2 @@
+# Test and lint tools used while changing the project.
+-e .[dev]

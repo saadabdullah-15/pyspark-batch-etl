@@ -1,0 +1,2 @@
+# Optional orchestration environment for Linux or WSL.
+-e .[orchestration]

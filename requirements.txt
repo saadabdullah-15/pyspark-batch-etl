@@ -1,3 +1,2 @@
-apache-airflow==3.2.2
-apache-airflow-providers-standard
-pyspark==4.1.2
+# Core local ETL runtime. The editable install also provides the `taxi-etl` command.
+-e .
